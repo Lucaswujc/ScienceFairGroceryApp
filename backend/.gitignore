@@ -1,0 +1,52 @@
+# Created by venv; see https://docs.python.org/3/library/venv.html
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+lib64
+lib64/
+venv/
+env/
+ENV/
+.venv/
+.ENV/
+Lib/
+Scripts/
+Include/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# VS Code settings
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment variables
+.env
+.env.*
+
+# Selenium drivers (if downloaded here)
+chromedriver.exe
+geckodriver.exe
+
+# Misc
+*.bak
+*.swp
+*.swo
+
+crawler/grocery_data/
+bin/
+lib/
+include/
+
+**/pyvenv.cfg

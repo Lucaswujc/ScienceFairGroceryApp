@@ -1,0 +1,51 @@
+from fastapi import FastAPI, HTTPException, Query
+from typing import List
+from db_engine.sqlite_engine import get_connection
+from crawler.utility import get_store_ads
+
+app = FastAPI()
+
+
+@app.get("/weeklyad/")
+def get_weekly_ad(storename: str = Query(...), week: str = Query(...)):
+    """
+    Retrieve weekly ad for a store for a particular week.
+    week should be in YYYY-MM-DD format (weekly_ad_starting_date).
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT product, price, image FROM crawler_results WHERE storename = ? AND weekly_ad_starting_date = ?""",
+            (storename, week),
+        )
+        rows = cursor.fetchall()
+        if not rows:
+            raise HTTPException(
+                status_code=404, detail="No weekly ad found for this store and week."
+            )
+        # Return image as base64 string for API response
+        import base64
+
+        results = []
+        for product, price, image in rows:
+            img_b64 = base64.b64encode(image).decode() if image else None
+            results.append(
+                {"product": product, "price": price, "image_base64": img_b64}
+            )
+        return results
+
+    @app.get("/weeklyadfromfile/")
+    def get_weekly_ad_from_file(storename: str = Query(...), week: str = Query(...)):
+        """
+        Retrieve weekly ad for a store for a particular week from a JSON file.
+        week should be in YYYY-Www format (ISO week date).
+        """
+        try:
+            data = get_store_ads(storename, week)
+        except FileNotFoundError:
+            raise HTTPException(
+                status_code=404,
+                detail="No weekly ad file found for this store and week.",
+            )
+
+        return data
