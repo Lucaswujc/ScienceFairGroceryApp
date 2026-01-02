@@ -51,7 +51,7 @@ def get_json_file_path(storename: str, week: str):
         str: Absolute path to the JSON file.
     """
     folder = get_store_week_folder(storename, week)
-    return os.path.join(folder, f"{storename}_{week}.json")
+    return os.path.join(folder, "weekly_ad.json")
 
 
 def download_image(url, name, store, week=None):
