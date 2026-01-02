@@ -218,28 +218,28 @@ def get_store_ads(storename: str, week: str) -> list:
     with open(file_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    # Load images as binary byte arrays
-    result = []
-    for item in data:
-        image_path = item.get("image")
-        image_base64 = None
+    # # Load images as binary byte arrays
+    # result = []
+    # for item in data:
+    #     image_path = item.get("image")
+    #     image_base64 = None
 
-        if image_path and os.path.isfile(image_path):
-            try:
-                with open(image_path, "rb") as img_file:
-                    image_bytes = img_file.read()
-                    image_base64 = (
-                        base64.b64encode(image_bytes).decode() if image_bytes else None
-                    )
-            except Exception as e:
-                print(f"Warning: Failed to load image {image_path}: {e}")
+    #     if image_path and os.path.isfile(image_path):
+    #         try:
+    #             with open(image_path, "rb") as img_file:
+    #                 image_bytes = img_file.read()
+    #                 image_base64 = (
+    #                     base64.b64encode(image_bytes).decode() if image_bytes else None
+    #                 )
+    #         except Exception as e:
+    #             print(f"Warning: Failed to load image {image_path}: {e}")
 
-        result.append(
-            {
-                "name": item.get("name"),
-                "price": item.get("price"),
-                "image": image_base64,
-            }
-        )
+    #     result.append(
+    #         {
+    #             "name": item.get("name"),
+    #             "price": item.get("price"),
+    #             "image": image_base64,
+    #         }
+    #     )
 
-    return result
+    return data

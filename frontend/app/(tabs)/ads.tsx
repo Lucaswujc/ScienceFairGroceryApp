@@ -25,7 +25,7 @@ type Ad = {
   date?: string; // YYYY-MM-DD
 };
 
-const KNOWN_STORES = ["HEB", "Kroger", "Tom Thumb"];
+const KNOWN_STORES = ["HEB", "Kroger", "TomThumb"];
 
 export default function AdsScreen() {
   const [storeFilter, setStoreFilter] = useState<"All" | string>("All");
