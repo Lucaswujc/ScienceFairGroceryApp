@@ -1,0 +1,53 @@
+version: "3.8"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: grocery-app-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./db_store:/app/db_store
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    networks:
+      - grocery-app-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: grocery-app-frontend
+    ports:
+      - "8081:8081"
+      - "19000:19000"
+      - "19001:19001"
+      - "19002:19002"
+    environment:
+      # This env variable should point to the backend service, check the util.tsx file in the frontend code for usage.
+      # Adjust the URL if necessary to match your backend service address.
+      # For local development, you might use: http://localhost:8000
+      # For production or remote access, use the appropriate domain or IP address.
+      # the util.tsx file should use this variable to set the API base URL.
+      - EXPO_PUBLIC_API_BASE=http://yurehome1.asuscomm.com:8000
+      - EXPO_DEVTOOLS_LISTEN_ADDRESS=0.0.0.0
+      - CI=false
+      - FORCE_COLOR=1
+      - NGROK_TIMEOUT=60000
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - grocery-app-network
+
+networks:
+  grocery-app-network:
+    driver: bridge
+
+volumes:
+  db_store:
+    driver: local

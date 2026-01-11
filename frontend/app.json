@@ -9,7 +9,12 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow the app to use the camera so you can photograph your refrigerator.",
+        "NSPhotoLibraryUsageDescription": "Allow the app to access your photo library to select fridge images for analysis.",
+        "NSPhotoLibraryAddUsageDescription": "Allow the app to save annotated fridge photos if you choose to export results."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -33,7 +38,9 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
-      ]
+      ],
+      "expo-font",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true

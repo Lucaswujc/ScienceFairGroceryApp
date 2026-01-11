@@ -13,17 +13,9 @@ import {
 
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
+import { useBasket } from "@/context/BasketContext";
+import type { Ad } from "@/types/ad";
 import { get_image, get_store_ads } from "../utility";
-
-type Ad = {
-  product: string;
-  price: string | number;
-  image_base64?: string | null;
-  image_uri?: string | null;
-  image_filename?: string | null;
-  store?: string;
-  date?: string; // YYYY-MM-DD
-};
 
 const KNOWN_STORES = ["HEB", "Kroger", "TomThumb"];
 
@@ -34,7 +26,7 @@ export default function AdsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [dateFilter, setDateFilter] = useState(""); // optional local filter
   const [showDateOptions, setShowDateOptions] = useState(false);
-  const [basket, setBasket] = useState<Ad[]>([]);
+  const { addToBasket: addItemToBasket, isInBasket } = useBasket();
 
   useEffect(() => {
     fetchAdsForSelection();
@@ -146,6 +138,7 @@ export default function AdsScreen() {
       (item.image_base64
         ? `data:image/png;base64,${item.image_base64}`
         : undefined);
+    const alreadyAdded = isInBasket(item);
     return (
       <View style={styles.adItem}>
         {uri ? (
@@ -163,14 +156,19 @@ export default function AdsScreen() {
           <ThemedText>{String(item.price)}</ThemedText>
         </View>
         <View style={styles.addButton}>
-          <Button title="Add" onPress={() => addToBasket(item)} />
+          <Button
+            title={alreadyAdded ? "Added" : "Add"}
+            onPress={() => addToBasket(item)}
+            disabled={alreadyAdded}
+            color={alreadyAdded ? "#9e9e9e" : undefined}
+          />
         </View>
       </View>
     );
   }
 
   function addToBasket(item: Ad) {
-    setBasket((prev) => [...prev, item]);
+    addItemToBasket(item);
   }
 
   return (
