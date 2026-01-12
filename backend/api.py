@@ -1,8 +1,11 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
+
+from fastapi.params import File
 from db_engine.sqlite_engine import get_connection
 from crawler.utility import get_store_ads
+from fridge_analyzer import analyze_refrigerator
 
 app = FastAPI()
 
@@ -87,3 +90,17 @@ def get_image_bytes(
 
     image_b64 = base64.b64encode(image_bytes).decode()
     return {"image_bytes": image_b64}
+
+@app.post("/analyze-fridge/")
+async def analyze_fridge_endpoint(file: UploadFile = File(...)):
+    try:
+        image_bytes = await file.read()
+        result = analyze_refrigerator(image_bytes)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to analyze refrigerator image: {exc}") from exc
+
+    return result

@@ -13,17 +13,9 @@ import {
 
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
+import { useBasket } from "@/context/BasketContext";
+import type { Ad } from "@/types/ad";
 import { get_image, get_store_ads } from "../utility";
-
-type Ad = {
-  product: string;
-  price: string | number;
-  image_base64?: string | null;
-  image_uri?: string | null;
-  image_filename?: string | null;
-  store?: string;
-  date?: string; // YYYY-MM-DD
-};
 
 const KNOWN_STORES = ["HEB", "Kroger", "TomThumb"];
 
@@ -33,19 +25,19 @@ export default function AdsScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dateFilter, setDateFilter] = useState(""); // optional local filter
-  const [basket, setBasket] = useState<Ad[]>([]);
+  const [showDateOptions, setShowDateOptions] = useState(false);
+  const { addToBasket: addItemToBasket, isInBasket } = useBasket();
 
   useEffect(() => {
     fetchAdsForSelection();
   }, [storeFilter]);
 
-  async function fetchAdsForSelection() {
+  async function fetchAdsForSelection(overrideWeek?: string) {
     setLoading(true);
     setError(null);
     try {
       // Determine week value to send to API. If no dateFilter, use current week's Monday
-      let week: string;
-      week = dateFilter || getMondayISO(new Date());
+      const week = overrideWeek ?? (dateFilter || getMondayISO(new Date()));
       let results: Ad[] = [];
       const storesToQuery =
         storeFilter === "All" ? KNOWN_STORES : [storeFilter];
@@ -146,6 +138,7 @@ export default function AdsScreen() {
       (item.image_base64
         ? `data:image/png;base64,${item.image_base64}`
         : undefined);
+    const alreadyAdded = isInBasket(item);
     return (
       <View style={styles.adItem}>
         {uri ? (
@@ -163,14 +156,19 @@ export default function AdsScreen() {
           <ThemedText>{String(item.price)}</ThemedText>
         </View>
         <View style={styles.addButton}>
-          <Button title="Add" onPress={() => addToBasket(item)} />
+          <Button
+            title={alreadyAdded ? "Added" : "Add"}
+            onPress={() => addToBasket(item)}
+            disabled={alreadyAdded}
+            color={alreadyAdded ? "#9e9e9e" : undefined}
+          />
         </View>
       </View>
     );
   }
 
   function addToBasket(item: Ad) {
-    setBasket((prev) => [...prev, item]);
+    addItemToBasket(item);
   }
 
   return (
@@ -196,18 +194,67 @@ export default function AdsScreen() {
           })}
         </View>
 
-        <ThemedText type="subtitle">Date filter</ThemedText>
-        <TextInput
-          placeholder="YYYY-MM-DD (±7 days)"
-          style={styles.input}
-          value={dateFilter}
-          onChangeText={handleDateInput}
-          maxLength={10}
-          keyboardType="numeric"
-        />
+        <Pressable
+          style={styles.dateHeader}
+          onPress={() => setShowDateOptions((s) => !s)}
+        >
+          <ThemedText type="subtitle">Date filter</ThemedText>
+          <View
+            style={[
+              styles.selectedBadge,
+              !dateFilter && styles.selectedBadgeEmpty,
+            ]}
+          >
+            <Text
+              style={[
+                styles.selectedBadgeText,
+                !dateFilter && styles.selectedBadgeTextEmpty,
+              ]}
+            >
+              {dateFilter || "Pick Monday"}
+            </Text>
+          </View>
+        </Pressable>
 
-        <View style={{ marginTop: 8 }}>
-          <Button title="Refresh" onPress={fetchAdsForSelection} />
+        {showDateOptions && (
+          <View style={styles.dateRow}>
+            {getAdjacentMondays(new Date()).map((d) => {
+              const active = dateFilter === d;
+              return (
+                <Pressable
+                  key={d}
+                  onPress={() => {
+                    setDateFilter(d);
+                    setShowDateOptions(false);
+                    // refresh results for selected week using latest value
+                    fetchAdsForSelection(d);
+                  }}
+                  style={[styles.dateButton, active && styles.dateButtonActive]}
+                >
+                  <Text
+                    style={active ? styles.dateTextActive : styles.dateText}
+                  >
+                    {d}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
+
+        <View style={styles.manualRow}>
+          <TextInput
+            placeholder="YYYY-MM-DD"
+            style={[styles.input, styles.manualInput]}
+            value={dateFilter}
+            onChangeText={handleDateInput}
+            keyboardType="numeric"
+            maxLength={10}
+          />
+          <Button
+            title="Refresh"
+            onPress={() => fetchAdsForSelection(dateFilter || undefined)}
+          />
         </View>
       </View>
 
@@ -241,6 +288,19 @@ function getMondayISO(date: Date) {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${dd}`;
+}
+
+/* Return previous, current and next Monday strings (YYYY-MM-DD) */
+function getAdjacentMondays(date: Date): string[] {
+  const mondayStr = getMondayISO(new Date(date.getTime()));
+  // convert YYYY-MM-DD back to Date in local timezone
+  const [y, m, d] = mondayStr.split("-").map((v) => parseInt(v, 10));
+  const base = new Date(y, m - 1, d);
+  const prev = new Date(base.getTime());
+  prev.setDate(base.getDate() - 7);
+  const next = new Date(base.getTime());
+  next.setDate(base.getDate() + 7);
+  return [getMondayISO(prev), getMondayISO(base), getMondayISO(next)];
 }
 
 const styles = StyleSheet.create({
@@ -302,5 +362,62 @@ const styles = StyleSheet.create({
   storeChipActive: {
     backgroundColor: "#e6f0ff",
     borderColor: "#85aaff",
+  },
+  dateRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  dateHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 4,
+  },
+  dateButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 8,
+    backgroundColor: "#fff",
+  },
+  dateButtonActive: {
+    backgroundColor: "#e6f0ff",
+    borderColor: "#85aaff",
+  },
+  dateText: {
+    color: "#333",
+  },
+  dateTextActive: {
+    color: "#1a56db",
+    fontWeight: "600",
+  },
+  selectedBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: "#e6f0ff",
+  },
+  selectedBadgeEmpty: {
+    backgroundColor: "#f2f4f7",
+  },
+  selectedBadgeText: {
+    color: "#1a56db",
+    fontWeight: "600",
+  },
+  selectedBadgeTextEmpty: {
+    color: "#667085",
+    fontWeight: "400",
+  },
+  manualRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 8,
+  },
+  manualInput: {
+    flex: 1,
   },
 });

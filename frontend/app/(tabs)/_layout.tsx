@@ -45,6 +45,33 @@ export default function TabLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="ads"
+        options={{
+          title: "Ads",
+          tabBarIcon: ({ color }) => (
+            <IconSymbol size={28} name="tag.fill" color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="analyzer"
+        options={{
+          title: "Analyze",
+          tabBarIcon: ({ color }) => (
+            <IconSymbol size={28} name="camera.fill" color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="cart"
+        options={{
+          title: "Cart",
+          tabBarIcon: ({ color }) => (
+            <IconSymbol size={28} name="cart.fill" color={color} />
+          ),
+        }}
+      />
     </Tabs>
   );
 }

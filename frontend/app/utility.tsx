@@ -1,6 +1,7 @@
-const API_BASE = process.env.EXPO_PUBLIC_API_BASE || 'http://localhost:8000';
+import type { ImagePickerAsset } from 'expo-image-picker';
+import { Platform } from 'react-native';
 
-
+const API_BASE = process.env.EXPO_PUBLIC_API_BASE || 'http://192.168.2.38:8000';
 
 function extToMime(filename: string): string {
   const ext = filename.split('.').pop()?.toLowerCase() || '';
@@ -67,7 +68,80 @@ export async function get_image(storename: string, week: string, imageFilename: 
   return `data:${mime};base64,${b64}`;
 }
 
+async function buildUploadFormData(asset: ImagePickerAsset): Promise<FormData> {
+  if (!asset?.uri) {
+    throw new Error('Image asset is missing a URI');
+  }
+
+  const form = new FormData();
+  const fileName = asset.fileName ?? `fridge-${Date.now()}.jpg`;
+  const mimeType = asset.mimeType ?? extToMime(fileName);
+
+  if (Platform.OS === 'web') {
+    const response = await fetch(asset.uri);
+    const blob = await response.blob();
+    const type = mimeType || blob.type || 'application/octet-stream';
+    const file = new File([blob], fileName, { type });
+    form.append('file', file);
+  } else {
+    form.append('file', {
+      uri: asset.uri,
+      name: fileName,
+      type: mimeType,
+    } as any);
+  }
+
+  return form;
+}
+
+type HttpError = Error & { status?: number };
+
+async function postImageForAnalysis(asset: ImagePickerAsset, endpoint: string) {
+  const formData = await buildUploadFormData(asset);
+  const path = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  const url = `${API_BASE}${path}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+    },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    const err = new Error(`Image analysis failed: ${res.status} ${body}`) as HttpError;
+    err.status = res.status;
+    throw err;
+  }
+
+  return res.json();
+}
+
+export async function analyze_photo(asset: ImagePickerAsset, endpoint: string = '/analyze-fridge/'): Promise<any> {
+  const candidates = [endpoint, '/analyze-fridge', '/analyze_photo', '/analyze_fridge'];
+  const tried = new Set<string>();
+  let lastError: Error | null = null;
+
+  for (const path of candidates) {
+    if (tried.has(path)) continue;
+    tried.add(path);
+
+    try {
+      return await postImageForAnalysis(asset, path);
+    } catch (err: any) {
+      if (err?.status !== 404) {
+        throw err;
+      }
+      lastError = err;
+    }
+  }
+
+  throw lastError ?? new Error('Image analysis failed: endpoint not found');
+}
+
 export default {
   get_store_ads,
   get_image,
+  analyze_photo,
 };
