@@ -10,6 +10,7 @@ services:
       - "8000:8000"
     volumes:
       - ./db_store:/app/db_store
+      - ./store_data:/app/crawler/grocery_data
     environment:
       - PYTHONDONTWRITEBYTECODE=1
       - PYTHONUNBUFFERED=1
