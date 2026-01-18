@@ -8,7 +8,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium import webdriver
 from datetime import date, timedelta
 
-from crawler_configs import FILE_SYSTEM_CONFIG
+from crawler.crawler_configs import FILE_SYSTEM_CONFIG
 
 def get_week_monday(target_date: date | None = None) -> date:
     """Return the Monday date for the week of the given date (or today)."""
