@@ -6,9 +6,14 @@ import urllib.request
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium import webdriver
-from datetime import date
+from datetime import date, timedelta
 
-from crawler.crawler_configs import FILE_SYSTEM_CONFIG
+from crawler_configs import FILE_SYSTEM_CONFIG
+
+def get_week_monday(target_date: date | None = None) -> date:
+    """Return the Monday date for the week of the given date (or today)."""
+    reference_date = target_date or date.today()
+    return reference_date - timedelta(days=reference_date.weekday())
 
 
 def get_store_week_folder(storename: str, week: str, create_if_not_exists: bool = True):
@@ -65,11 +70,12 @@ def download_image(url, name, store, week=None):
         week (str, optional): Week in YYYY-Www format. If None, uses current week.
 
     Returns:
-        str: Local path where the image was saved, or None if download failed.
+        tuple[str | None, str | None]: (absolute path, filename) or (None, None) on failure.
     """
-    # Get current week if not provided
+    # Default to the Monday of the current week (YYYY-MM-DD)
     if week is None:
-        week = date.today().strftime("%Y-W%U")
+        current_monday = get_week_monday()
+        week = current_monday.strftime("%Y-%m-%d")
 
     # Get the folder for this store/week
     folder_path = get_store_week_folder(store, week)
@@ -82,7 +88,8 @@ def download_image(url, name, store, week=None):
     if not ext or len(ext) > 5:
         ext = ".jpg"  # Fallback extension if unknown
 
-    local_path = os.path.join(folder_path, f"{filename}{ext}")
+    local_filename = f"{filename}{ext}"
+    local_path = os.path.join(folder_path, local_filename)
 
     # Download image using urlopen
     try:
@@ -91,10 +98,10 @@ def download_image(url, name, store, week=None):
             open(local_path, "wb") as out_file,
         ):
             out_file.write(response.read())
-        return local_path
+        return local_path, local_filename
     except Exception as e:
         print(f"Failed to download image for {name}: {e}")
-        return None
+        return None, None
 
 
 def save_grocery_items(data, storename, week=None):
@@ -115,7 +122,8 @@ def save_grocery_items(data, storename, week=None):
 
     # Get current week if not provided
     if week is None:
-        week = date.today().strftime("%Y-W%U")
+        current_monday = get_week_monday()
+        week = current_monday.strftime("%Y-%m-%d")
 
     # Get the JSON file path
     file_path = get_json_file_path(storename, week)

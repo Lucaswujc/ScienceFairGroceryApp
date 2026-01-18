@@ -1,48 +1,89 @@
-from utility import save_grocery_items as save_to_json
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium import webdriver
-import time
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+"""Playwright-based scraper for H-E-B weekly ads."""
+
 from urllib.parse import urljoin
+import random
+import time
+import sys
+import subprocess
+import traceback
+from typing import List, Tuple
+
+from utility import download_image, save_grocery_items as save_to_json
+
+try:
+    from playwright.sync_api import (
+        sync_playwright,
+        TimeoutError as PlaywrightTimeoutError,
+        Locator,
+        Page,
+    )
+except Exception as exc:  # pragma: no cover - clearer installation guidance
+    diag = []
+    try:
+        diag.append(f"sys.executable: {sys.executable}")
+        try:
+            pip_out = subprocess.check_output(
+                [sys.executable, "-m", "pip", "show", "playwright"],
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            diag.append("pip show playwright:\n" + pip_out.strip())
+        except Exception as pip_exc:
+            diag.append("pip show failed: " + str(pip_exc))
+    except Exception:
+        diag.append("failed to collect diagnostic info")
+
+    diag.append(
+        "import error: "
+        + "".join(traceback.format_exception_only(type(exc), exc)).strip()
+    )
+    message = (
+        "Playwright is required. Run 'pip install playwright' followed by "
+        "'python -m playwright install'. Diagnostics:\n" + "\n".join(diag)
+    )
+    raise RuntimeError(message) from exc
 
 
-def extract_heb_product(card):
-    img = card.find_element(By.TAG_NAME, "img")
-    img_url = img.get_attribute("src")
-    item_name = img.get_attribute("alt").strip()
+def extract_heb_product(card: Locator) -> Tuple[str, str, str, bool]:
+    """Extract product details from a single product card."""
+    img = card.locator("img").first
+    img_url = (img.get_attribute("src") or "").strip()
+    item_name = (img.get_attribute("alt") or "").strip()
 
-    name_spans = card.find_elements(By.CSS_SELECTOR, '[data-qe-id="productTitle"] span')
-    for span in name_spans:
-        if span.text.strip():
-            item_name = span.text.strip()
+    title_spans = card.locator('[data-qe-id="productTitle"] span')
+    for idx in range(title_spans.count()):
+        text = (title_spans.nth(idx).inner_text() or "").strip()
+        if text:
+            item_name = text
             break
 
     price_text = ""
-    price_elements = card.find_elements(By.XPATH, ".//*[contains(text(),'$')]")
-    for elem in price_elements:
-        text = elem.text.strip()
-        if "$" in text and "/" not in text:
-            price_text = text
+    price_elements = card.locator("xpath=.//*[contains(text(),'$')]")
+    for idx in range(price_elements.count()):
+        raw = (price_elements.nth(idx).inner_text() or "").strip()
+        if "$" in raw and "/" not in raw:
+            price_text = raw
             break
 
     unit_price = ""
-    unit_price_elements = card.find_elements(By.XPATH, ".//*[contains(text(),' / ')]")
-    for elem in unit_price_elements:
-        text = elem.text.strip()
-        if "$" in text and "/" in text:
-            unit_price = text
+    unit_price_elements = card.locator("xpath=.//*[contains(text(),' / ')]")
+    for idx in range(unit_price_elements.count()):
+        raw = (unit_price_elements.nth(idx).inner_text() or "").strip()
+        if "$" in raw and "/" in raw:
+            unit_price = raw
             break
 
-    coupon_divs = card.find_elements(
-        By.XPATH, ".//*[contains(translate(text(),'COUPON','coupon'),'coupon')]"
+    coupon_divs = card.locator(
+        "xpath=.//*[contains(translate(text(),'COUPON','coupon'),'coupon')]"
     )
-    has_coupon = bool(coupon_divs)
+    has_coupon = coupon_divs.count() > 0
 
-    buttons = card.find_elements(By.XPATH, ".//button")
-    in_stock = any("Add to" in btn.text for btn in buttons)
+    buttons = card.locator("xpath=.//button")
+    in_stock = False
+    for idx in range(buttons.count()):
+        if "Add to" in (buttons.nth(idx).inner_text() or ""):
+            in_stock = True
+            break
 
     full_price = f"{price_text} ({unit_price})" if unit_price else price_text
     if has_coupon:
@@ -51,63 +92,105 @@ def extract_heb_product(card):
     return item_name, img_url, full_price.strip(), in_stock
 
 
-def scrape_page(driver):
-    WebDriverWait(driver, 20).until(
-        EC.presence_of_all_elements_located(
-            (By.CSS_SELECTOR, '[data-component="product-card"]')
-        )
-    )
-
-    cards = driver.find_elements(By.CSS_SELECTOR, '[data-component="product-card"]')
+def scrape_page(page: Page) -> List[dict]:
+    page.wait_for_selector('[data-component="product-card"]', timeout=20000)
+    cards = page.locator('[data-component="product-card"]')
+    count = cards.count()
     items = []
-    for card in cards:
-        name, image, price, stock = extract_heb_product(card)
+    for idx in range(count):
+        card = cards.nth(idx)
+        try:
+            name, imageurl, price, stock = extract_heb_product(card)
+        except Exception as exc:  # pragma: no cover - continue on extraction glitches
+            print(f"Failed to parse card {idx}: {exc}")
+            continue
+
         print("Product:", name)
-        print("Image URL:", image)
+        print("Image URL:", imageurl)
         print("Price:", price)
         print("In Stock:", stock)
         print("=" * 60)
-
-        item = {"name": name, "image": image, "price": price, "in_stock": stock}
-        items.append(item)
+        local_image_path, local_image_filename = download_image(imageurl, name, store="heb")
+        items.append({"name": name, "image": local_image_filename, "price": price, "in_stock": stock, "image_url": imageurl})
 
     return items
 
 
-def main_flow():
-    chrome_options = Options()
-    chrome_options.binary_location = r"C:\Users\lucas\OneDrive\Documents\Lucas_Grocery_Project\GroceryApp\backend\Lib\chrome-win64\chrome.exe"
-    chrome_lib_path = r"C:\Users\lucas\OneDrive\Documents\Lucas_Grocery_Project\GroceryApp\backend\Lib\chromedriver-win64\chromedriver.exe"
-    service = Service(chrome_lib_path)
+def add_store_cookie(page: Page):
+    page.context.add_cookies(
+        [
+            {
+                "name": "SHOPPING_STORE_ID",
+                "value": "796",
+                "domain": ".heb.com",
+                "path": "/",
+                "secure": True,
+                "httpOnly": False,
+            }
+        ]
+    )
 
-    driver = webdriver.Chrome(service=service, options=chrome_options)
+
+def main_flow(headless: bool = False, slow_mo: int = 0):
     base_url = "https://www.heb.com"
-    driver.get(base_url)
-    cookie = {
-        "name": "SHOPPING_STORE_ID",
-        "value": "796",
-        "domain": "www.heb.com",
-        "path": "/",
-        "secure": True,
-    }
-    driver.add_cookie(cookie)
-    driver.get(f"{base_url}/weekly-ad/deals")
-    items = []
-    while True:
-        items.extend(scrape_page(driver))
-        time.sleep(2)
+    weekly_ad_url = f"{base_url}/weekly-ad/deals"
+    all_items: List[dict] = []
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(
+            headless=headless,
+            slow_mo=slow_mo,
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+        context = browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+                " AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+            ),
+            locale="en-US",
+            viewport={"width": 1280, "height": 900},
+        )
+
+        page = context.new_page()
+        page.goto(base_url, wait_until="domcontentloaded")
+        add_store_cookie(page)
+        page.goto(weekly_ad_url, wait_until="domcontentloaded")
+
         try:
-            next_button = driver.find_element(
-                By.CSS_SELECTOR, '[data-qe-id="paginationNext"]'
-            )
-            next_href = next_button.get_attribute("href")
-            if not next_href:
+            page.wait_for_selector('[data-component="product-card"]', timeout=20000)
+        except PlaywrightTimeoutError:
+            print("No product cards found on the H-E-B weekly ad page.")
+            context.close()
+            browser.close()
+            return
+
+        while True:
+            all_items.extend(scrape_page(page))
+
+            next_buttons = page.locator('[data-qe-id="paginationNext"]')
+            if next_buttons.count() == 0:
                 break
 
-            next_url = urljoin(base_url, next_href)
-            driver.get(next_url)
-        except:  # noqa: E722
-            break
+            next_button = next_buttons.first
+            aria_disabled = next_button.get_attribute("aria-disabled")
+            next_href = next_button.get_attribute("href")
+            if aria_disabled == "true" or not next_href:
+                break
 
-    driver.quit()
-    save_to_json(items, "heb")
+            sleep_duration = random.uniform(1.5, 3.5)
+            time.sleep(sleep_duration)  # Randomized delay before loading next page
+
+            next_url = urljoin(base_url, next_href)
+            page.goto(next_url, wait_until="domcontentloaded")
+
+        try:
+            context.close()
+            browser.close()
+        except Exception:
+            pass
+
+    save_to_json(all_items, "heb")
+
+
+if __name__ == "__main__":
+    main_flow(headless=False, slow_mo=0)
