@@ -1,5 +1,5 @@
 import { Image } from "expo-image";
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import {
   ActivityIndicator,
   Button,
@@ -27,10 +27,6 @@ export default function AdsScreen() {
   const [dateFilter, setDateFilter] = useState(""); // optional local filter
   const [showDateOptions, setShowDateOptions] = useState(false);
   const { addToBasket: addItemToBasket, isInBasket } = useBasket();
-
-  useEffect(() => {
-    fetchAdsForSelection();
-  }, [storeFilter]);
 
   async function fetchAdsForSelection(overrideWeek?: string) {
     setLoading(true);
@@ -226,8 +222,6 @@ export default function AdsScreen() {
                   onPress={() => {
                     setDateFilter(d);
                     setShowDateOptions(false);
-                    // refresh results for selected week using latest value
-                    fetchAdsForSelection(d);
                   }}
                   style={[styles.dateButton, active && styles.dateButtonActive]}
                 >
