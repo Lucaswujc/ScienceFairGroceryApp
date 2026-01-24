@@ -155,46 +155,45 @@ def chat_with_gpt(prompt: str) -> str:
 
 
 def find_overlapping_weekly_ads(
-    weekly_ad_path: str | Path,
+    weekly_payloads: Sequence[dict[str, str]],
     fridge_items_json: str,
     *,
-    store_name: str | None = None,
-    store_week: str | None = None,
     summary_style: str = "Return JSON array where each entry contains the overlapping refrigerator `item_name`, whether it is perishable, and the matching weekly ad fields such as `product`, `price`, `image_filename`, `store_name`, and `store_week`.",
 ):
-    weekly_path = Path(weekly_ad_path)
-    if not weekly_path.exists():
-        raise FileNotFoundError(f"Weekly ad file not found: {weekly_path}")
+    if not weekly_payloads:
+        raise ValueError("At least one weekly ad payload is required.")
 
-    weekly_payload = weekly_path.read_text()
-    store_name = store_name or "unknown"
-    store_week = store_week or "unknown"
     instructions = (
-        "You receive two JSON documents: one from a refrigerator inspection and one listing weekly ad products. "
-        "Find items that describe the same product (case-insensitive, allow close matches). "
-        f"{summary_style} Each overlap entry must include `store_name`='{store_name}' and `store_week`='{store_week}'. "
-        "Ensure `image_filename` is copied from the matching weekly ad when available. "
-        "If nothing overlaps, respond with an empty JSON array."
+        "You receive one refrigerator inspection JSON document and multiple weekly ad JSON documents. "
+        "Find products that describe the same item (case-insensitive, allow close matches). "
+        f"{summary_style} Copy `store_name`, `store_week`, and `image_filename` exactly from the matching weekly ad entry. "
+        "If nothing overlaps, respond with an empty JSON array. Use only the store metadata provided below; do not invent new store names or weeks."
     )
+
+    content = [
+        {"type": "text", "text": instructions},
+        {"type": "text", "text": f"Refrigerator JSON:\n{fridge_items_json}"},
+    ]
+
+    for payload in weekly_payloads:
+        store_name = payload.get("store_name", "unknown")
+        store_week = payload.get("store_week", "unknown")
+        store_slug = payload.get("store_slug")
+        weekly_json = payload.get("weekly_ad_json", "{}")
+        slug_suffix = f" (store_slug={store_slug})" if store_slug else ""
+        content.append(
+            {
+                "type": "text",
+                "text": (
+                    f"Weekly ad JSON for store_name='{store_name}'{slug_suffix} and store_week='{store_week}':\n"
+                    f"{weekly_json}"
+                ),
+            }
+        )
 
     response = client.chat.completions.create(
         model="gpt-5",
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": instructions},
-                    {
-                        "type": "text",
-                        "text": f"Refrigerator JSON:\n{fridge_items_json}",
-                    },
-                    {
-                        "type": "text",
-                        "text": f"Weekly ad JSON:\n{weekly_payload}",
-                    },
-                ],
-            }
-        ],
+        messages=[{"role": "user", "content": content}],
     )
 
     return response.choices[0].message.content
@@ -226,11 +225,15 @@ def analyze_refrigerator(
         weekly_paths = _discover_weekly_ad_paths(store_slugs, target_week=target_week)
 
     store_infos: list[dict[str, str]] = []
-    store_overlaps: list[dict[str, object]] = []
-    aggregated_ads: list[object] = []
+    weekly_payloads: list[dict[str, str]] = []
 
     for path in weekly_paths:
         store_name, store_week = extract_store_metadata(path)
+        try:
+            store_slug = path.parent.parent.name
+        except Exception:  # pragma: no cover - defensive path parsing
+            store_slug = "unknown"
+
         store_info = {
             "store_name": store_name,
             "store_week": store_week,
@@ -238,24 +241,61 @@ def analyze_refrigerator(
         }
         store_infos.append(store_info)
 
-        overlap_raw = find_overlapping_weekly_ads(
-            path,
-            fridge_raw,
-            store_name=store_name,
-            store_week=store_week,
+        weekly_payloads.append(
+            {
+                "store_name": store_name,
+                "store_week": store_week,
+                "store_slug": store_slug,
+                "weekly_ad_json": path.read_text(),
+            }
         )
-        try:
-            overlapping_ads = json.loads(overlap_raw)
-        except json.JSONDecodeError:
-            overlapping_ads = overlap_raw  # return raw text if parsing fails
-        normalized_ads = _normalize_overlapping_ads(overlapping_ads, path, store_name, store_week)
 
-        store_overlaps.append({**store_info, "ads": normalized_ads})
+    overlap_raw = find_overlapping_weekly_ads(weekly_payloads, fridge_raw)
+    aggregated_ads: list[object] = []
+    store_overlaps: list[dict[str, object]] = []
 
-        if isinstance(normalized_ads, list):
-            aggregated_ads.extend(normalized_ads)
-        else:
-            aggregated_ads.append({**store_info, "raw_response": normalized_ads})
+    try:
+        overlapping_ads = json.loads(overlap_raw)
+    except json.JSONDecodeError:
+        overlapping_ads = overlap_raw  # return raw text if parsing fails
+
+    if isinstance(overlapping_ads, list):
+        grouped_ads: dict[tuple[str, str], list[dict[str, object]]] = {}
+        unknown_entries: list[object] = []
+        for entry in overlapping_ads:
+            if not isinstance(entry, dict):
+                unknown_entries.append(entry)
+                continue
+            key = (entry.get("store_name"), entry.get("store_week"))
+            if None in key:
+                unknown_entries.append(entry)
+                continue
+            grouped_ads.setdefault(key, []).append(entry)
+
+        known_keys = {(info["store_name"], info["store_week"]) for info in store_infos}
+        for info in store_infos:
+            key = (info["store_name"], info["store_week"])
+            normalized_ads = _normalize_overlapping_ads(
+                grouped_ads.get(key, []),
+                Path(info["weekly_ad_path"]),
+                info["store_name"],
+                info["store_week"],
+            )
+            store_overlaps.append({**info, "ads": normalized_ads})
+            if isinstance(normalized_ads, list):
+                aggregated_ads.extend(normalized_ads)
+            else:
+                aggregated_ads.append({**info, "raw_response": normalized_ads})
+
+        for key, entries in grouped_ads.items():
+            if key not in known_keys:
+                aggregated_ads.extend(entries)
+
+        aggregated_ads.extend(unknown_entries)
+    else:
+        for info in store_infos:
+            store_overlaps.append({**info, "ads": overlapping_ads})
+            aggregated_ads.append({**info, "raw_response": overlapping_ads})
 
     store_info_payload: object
     if len(store_infos) == 1:
