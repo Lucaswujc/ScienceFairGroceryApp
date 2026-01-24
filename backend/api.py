@@ -1,3 +1,4 @@
+import time
 from fastapi import FastAPI, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
@@ -95,7 +96,10 @@ def get_image_bytes(
 async def analyze_fridge_endpoint(file: UploadFile = File(...)):
     try:
         image_bytes = await file.read()
+        start_time = time.perf_counter()
         result = analyze_refrigerator(image_bytes)
+        elapsed = time.perf_counter() - start_time
+        print(f"analyze_refrigerator call time: {elapsed:.2f}s")
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
