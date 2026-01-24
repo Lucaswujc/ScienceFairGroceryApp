@@ -1,6 +1,6 @@
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Button,
@@ -12,6 +12,8 @@ import {
 
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
+import { useBasket } from "@/context/BasketContext";
+import type { Ad } from "@/types/ad";
 import { analyze_photo } from "../utility";
 
 interface AnalyzeResult {
@@ -23,11 +25,135 @@ interface AnalyzeResult {
   };
 }
 
+type NormalizedOverlap = {
+  ad: Ad;
+  perishable?: boolean;
+};
+
+function getAdKey(item: Ad) {
+  return [
+    item.product?.toLowerCase() ?? "",
+    item.store?.toLowerCase() ?? "",
+    String(item.price ?? ""),
+    item.date ?? "",
+    item.image_filename ?? "",
+  ].join("|");
+}
+
+function normalizeOverlapEntry(entry: any): NormalizedOverlap | null {
+  if (!entry) {
+    return null;
+  }
+
+  const rawProduct =
+    entry.product ??
+    entry.item_name ??
+    entry.name ??
+    entry.title ??
+    entry.description;
+  const product =
+    typeof rawProduct === "string"
+      ? rawProduct.trim()
+      : typeof rawProduct === "number"
+      ? String(rawProduct)
+      : "";
+  if (!product) {
+    return null;
+  }
+
+  const rawPrice =
+    entry.price ??
+    entry.sale_price ??
+    entry.offer_price ??
+    entry.deal_price ??
+    entry.cost;
+
+  let price: string | number = "";
+  if (typeof rawPrice === "number" || typeof rawPrice === "string") {
+    price = rawPrice;
+  } else if (rawPrice !== undefined && rawPrice !== null) {
+    price = String(rawPrice);
+  }
+
+  const imageUri =
+    typeof entry.image_uri === "string"
+      ? entry.image_uri
+      : typeof entry.image_url === "string"
+      ? entry.image_url
+      : undefined;
+
+  const ad: Ad = {
+    product,
+    price,
+    store:
+      typeof entry.store === "string"
+        ? entry.store
+        : typeof entry.store_name === "string"
+        ? entry.store_name
+        : typeof entry.retailer === "string"
+        ? entry.retailer
+        : undefined,
+    date:
+      typeof entry.date === "string"
+        ? entry.date
+        : typeof entry.sale_date === "string"
+        ? entry.sale_date
+        : undefined,
+    image_base64:
+      typeof entry.image_base64 === "string"
+        ? entry.image_base64
+        : undefined,
+    image_uri: imageUri,
+    image_filename:
+      typeof entry.image_filename === "string"
+        ? entry.image_filename
+        : undefined,
+  };
+
+  return {
+    ad,
+    perishable:
+      typeof entry.perishable === "boolean" ? entry.perishable : undefined,
+  };
+}
+
+function normalizeOverlapEntries(
+  payload: AnalyzeResult["overlapping_ads"]
+): NormalizedOverlap[] {
+  if (!Array.isArray(payload)) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const normalized: NormalizedOverlap[] = [];
+
+  payload.forEach((entry) => {
+    const normalizedEntry = normalizeOverlapEntry(entry);
+    if (!normalizedEntry) {
+      return;
+    }
+    const key = getAdKey(normalizedEntry.ad);
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    normalized.push(normalizedEntry);
+  });
+
+  return normalized;
+}
+
 export default function AnalyzerScreen() {
   const [asset, setAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [result, setResult] = useState<AnalyzeResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { addToBasket, isInBasket } = useBasket();
+
+  const normalizedOverlaps = useMemo(
+    () => normalizeOverlapEntries(result?.overlapping_ads),
+    [result?.overlapping_ads]
+  );
 
   async function ensurePermissions() {
     const mediaPermission = await ImagePicker.getMediaLibraryPermissionsAsync();
@@ -95,7 +221,10 @@ export default function AnalyzerScreen() {
     ));
   }
 
-  function renderOverlaps(payload: AnalyzeResult["overlapping_ads"]) {
+  function renderOverlaps(
+    payload: AnalyzeResult["overlapping_ads"],
+    normalized: NormalizedOverlap[]
+  ) {
     if (!payload) {
       return <ThemedText>No overlapping weekly ads returned.</ThemedText>;
     }
@@ -104,21 +233,35 @@ export default function AnalyzerScreen() {
       return <ThemedText>{payload}</ThemedText>;
     }
 
-    if (!Array.isArray(payload) || !payload.length) {
+    if (!Array.isArray(payload) || !payload.length || !normalized.length) {
       return <ThemedText>No overlapping weekly ads returned.</ThemedText>;
     }
 
-    return payload.map((entry, idx) => {
-      if (!entry) return null;
-      const { item_name, perishable, product, price } = entry;
+    return normalized.map(({ ad, perishable }, idx) => {
+      const inBasket = isInBasket(ad);
+      const hasPrice = ad.price !== undefined && ad.price !== null && ad.price !== "";
+
       return (
-        <View key={`${item_name || idx}-${idx}`} style={styles.overlapCard}>
-          <Text style={styles.overlapTitle}>{item_name || entry.product || "Item"}</Text>
+        <View key={`${getAdKey(ad)}-${idx}`} style={styles.overlapCard}>
+          <Text style={styles.overlapTitle}>{ad.product}</Text>
           {typeof perishable !== "undefined" && (
-            <Text style={styles.overlapMeta}>{perishable ? "Perishable" : "Shelf-stable"}</Text>
+            <Text style={styles.overlapMeta}>
+              {perishable ? "Perishable" : "Shelf-stable"}
+            </Text>
           )}
-          {product && <Text style={styles.overlapMeta}>Ad match: {product}</Text>}
-          {price && <Text style={styles.overlapMeta}>Price: {price}</Text>}
+          {ad.store && <Text style={styles.overlapMeta}>Store: {ad.store}</Text>}
+          {ad.date && <Text style={styles.overlapMeta}>Ad date: {ad.date}</Text>}
+          {hasPrice && (
+            <Text style={styles.overlapPrice}>Price: {String(ad.price)}</Text>
+          )}
+          <View style={styles.overlapActions}>
+            <Button
+              title={inBasket ? "In Cart" : "Add to Cart"}
+              onPress={() => addToBasket(ad)}
+              disabled={inBasket}
+              color={inBasket ? "#999" : undefined}
+            />
+          </View>
         </View>
       );
     });
@@ -160,7 +303,7 @@ export default function AnalyzerScreen() {
             <ThemedText type="subtitle" style={styles.sectionSpacer}>
               Weekly Ad Matches
             </ThemedText>
-            {renderOverlaps(result.overlapping_ads)}
+            {renderOverlaps(result.overlapping_ads, normalizedOverlaps)}
 
             {result.metrics && (
               <View style={styles.metricsRow}>
@@ -265,6 +408,15 @@ const styles = StyleSheet.create({
   overlapMeta: {
     color: "#555",
     marginTop: 4,
+  },
+  overlapPrice: {
+    color: "#1f3bb3",
+    marginTop: 6,
+    fontWeight: "600",
+  },
+  overlapActions: {
+    marginTop: 10,
+    alignItems: "flex-start",
   },
   metricsRow: {
     flexDirection: "row",
