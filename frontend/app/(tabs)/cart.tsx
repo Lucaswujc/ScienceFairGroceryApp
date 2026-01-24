@@ -1,6 +1,14 @@
 import { Image } from "expo-image";
-import React, { useMemo } from "react";
-import { Button, FlatList, StyleSheet, Text, View } from "react-native";
+import React, { useMemo, useState } from "react";
+import {
+  Button,
+  FlatList,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
 import { Collapsible } from "@/components/Collapsible";
 import { ThemedText } from "@/components/ThemedText";
@@ -39,6 +47,9 @@ type StoreGroup = {
 
 export default function CartScreen() {
   const { items, removeFromBasket, clearBasket } = useBasket();
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [notes, setNotes] = useState<string[]>([]);
 
   const total = useMemo(() => {
     return items.reduce((sum, item) => sum + priceToNumber(item.price), 0);
@@ -112,6 +123,19 @@ export default function CartScreen() {
     </View>
   );
 
+  const handleAddNote = () => {
+    const trimmed = noteDraft.trim();
+    if (!trimmed) {
+      return;
+    }
+    setNotes((prev) => [...prev, trimmed]);
+    setNoteDraft("");
+  };
+
+  const handleRemoveNote = (index: number) => {
+    setNotes((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
   return (
     <ThemedView style={styles.container}>
       <ThemedText type="title">Cart</ThemedText>
@@ -122,6 +146,43 @@ export default function CartScreen() {
         </ThemedText>
         {items.length > 0 && (
           <Button title="Clear Cart" onPress={clearBasket} color="#444" />
+        )}
+      </View>
+
+      <View style={styles.notesSection}>
+        <TouchableOpacity
+          onPress={() => setNotesOpen((open) => !open)}
+          style={styles.notesHeader}
+        >
+          <ThemedText type="defaultSemiBold">
+            Personal purchase notes
+          </ThemedText>
+          <Text style={styles.notesArrow}>{notesOpen ? "▲" : "▼"}</Text>
+        </TouchableOpacity>
+        {notesOpen && (
+          <View style={styles.notesContent}>
+            <TextInput
+              style={styles.noteInput}
+              placeholder="Add a note for items you still need..."
+              value={noteDraft}
+              onChangeText={setNoteDraft}
+            />
+            <Button title="Add note" onPress={handleAddNote} />
+            {notes.length > 0 && (
+              <View style={styles.noteList}>
+                {notes.map((note, index) => (
+                  <View key={`${note}-${index}`} style={styles.noteRow}>
+                    <Text style={styles.noteText}>{note}</Text>
+                    <Button
+                      title="Remove"
+                      color="#c62828"
+                      onPress={() => handleRemoveNote(index)}
+                    />
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
         )}
       </View>
 
@@ -195,5 +256,51 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
+  },
+  notesSection: {
+    borderWidth: 1,
+    borderColor: "#d0d0d0",
+    borderRadius: 12,
+    marginBottom: 16,
+    overflow: "hidden",
+  },
+  notesHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    backgroundColor: "#f6f6f6",
+  },
+  notesArrow: {
+    fontSize: 16,
+  },
+  notesContent: {
+    padding: 12,
+    gap: 12,
+  },
+  noteInput: {
+    borderWidth: 1,
+    borderColor: "#c0c0c0",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  noteList: {
+    gap: 8,
+  },
+  noteRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  noteText: {
+    flex: 1,
+    marginRight: 8,
   },
 });
